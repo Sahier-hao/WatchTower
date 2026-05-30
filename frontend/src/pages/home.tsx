@@ -14,6 +14,9 @@ export default function Home() {
     setLoading(true);
     try {
       const ws = await createWorkspace(undefined, name || undefined, webhook || undefined);
+      if (ws.admin_token) {
+        localStorage.setItem("wt_admin_token", ws.admin_token);
+      }
       navigate(`/w/${ws.id}`);
     } catch {
       setLoading(false);

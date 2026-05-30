@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "react-router-dom";
-import { Plus, Pencil, Trash2, Play, Eye, Loader2, Radio, ChevronRight, ExternalLink } from "lucide-react";
-import { fetchSources, createSource, updateSource, deleteSource, testSource, manualCrawl, fetchNotices } from "../api/client";
+import { Plus, Pencil, Trash2, Play, Eye, Loader2, Radio, ChevronRight } from "lucide-react";
+import { fetchSources, createSource, updateSource, deleteSource, testSource, manualCrawl, fetchNotices, fetchStats } from "../api/client";
 import type { SourceFormData } from "../api/client";
 import { useToast } from "../components/toast";
 import type { Source, TestResult, CrawlResult, Notice } from "../types";
@@ -26,14 +26,19 @@ export default function Sources() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [sourceNotices, setSourceNotices] = useState<Record<string, Notice[]>>({});
   const [noticesLoading, setNoticesLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
   const { toast } = useToast();
 
   const load = useCallback(async () => {
     if (!wsId) return;
     setLoading(true);
     try {
-      const data = await fetchSources(wsId, 0, 50);
+      const [data, stats] = await Promise.all([
+        fetchSources(wsId, 0, 50),
+        fetchStats(wsId),
+      ]);
       setSources(data.items);
+      setIsAdmin(!!(stats as any).is_admin);
     } finally {
       setLoading(false);
     }
@@ -105,9 +110,11 @@ export default function Sources() {
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-slate-800">爬取源管理</h1>
-        <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
-          <Plus className="w-4 h-4" /> 添加爬取源
-        </button>
+        {isAdmin && (
+          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+            <Plus className="w-4 h-4" /> 添加爬取源
+          </button>
+        )}
       </div>
 
       {loading ? (
@@ -123,9 +130,12 @@ export default function Sources() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500"><tr>
               <th className="w-8 px-2 py-3"></th>
-              <th className="text-left px-3 py-3 font-medium">名称</th><th className="text-left px-3 py-3 font-medium">URL</th>
-              <th className="text-left px-3 py-3 font-medium">间隔</th><th className="text-left px-3 py-3 font-medium">状态</th>
-              <th className="text-left px-3 py-3 font-medium">上次爬取</th><th className="text-right px-3 py-3 font-medium">操作</th>
+              <th className="text-left px-3 py-3 font-medium">名称</th>
+              <th className="text-left px-3 py-3 font-medium hidden md:table-cell">URL</th>
+              <th className="text-left px-3 py-3 font-medium hidden sm:table-cell">间隔</th>
+              <th className="text-left px-3 py-3 font-medium">状态</th>
+              <th className="text-left px-3 py-3 font-medium hidden lg:table-cell">上次爬取</th>
+              <th className="text-right px-3 py-3 font-medium">操作</th>
             </tr></thead>
             <tbody className="divide-y divide-slate-50">
               {sources.map(s => (
@@ -133,28 +143,33 @@ export default function Sources() {
                   <td colSpan={7} className="p-0">
                     <div onClick={() => handleToggleExpand(s)} className={`flex items-center cursor-pointer transition-colors ${expandedId === s.id ? "bg-blue-50/50" : "hover:bg-slate-50/50"}`}>
                       <span className="w-8 flex justify-center text-slate-400"><ChevronRight className={`w-4 h-4 transition-transform ${expandedId === s.id ? "rotate-90 text-blue-500" : ""}`} /></span>
-                      <span className="px-3 py-3 flex-1"><div className="font-medium text-slate-800">{s.name}</div><div className="text-xs text-slate-400">{s.notice_count} 条通知</div></span>
-                      <span className="px-3 py-3 text-slate-500 max-w-48 truncate flex-1" title={s.url}>{s.url}</span>
-                      <span className="px-3 py-3 text-slate-500 w-20">{s.crawl_interval}分钟</span>
-                      <span className="px-3 py-3 w-20"><button onClick={e => { e.stopPropagation(); handleToggle(s); }} className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${s.is_active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-400"}`}>{s.is_active ? "启用" : "停用"}</button></span>
-                      <span className="px-3 py-3 text-xs text-slate-400 w-36">{s.last_crawled_at ? new Date(s.last_crawled_at).toLocaleString("zh-CN") : "从未"}</span>
+                      <span className="px-3 py-3 flex-1 min-w-0"><div className="font-medium text-slate-800 text-sm lg:text-base truncate">{s.name}</div><div className="text-xs text-slate-400">{s.notice_count} 条通知</div></span>
+                      <span className="px-3 py-3 text-slate-500 max-w-48 truncate flex-1 hidden md:table-cell" title={s.url}>{s.url}</span>
+                      <span className="px-3 py-3 text-slate-500 w-20 hidden sm:table-cell">{s.crawl_interval}分钟</span>
+                      <span className="px-3 py-3 w-20 shrink-0"><button onClick={e => { e.stopPropagation(); handleToggle(s); }} className={`px-2.5 py-0.5 rounded-full text-xs font-medium ${s.is_active ? "bg-green-50 text-green-700" : "bg-slate-100 text-slate-400"}`}>{s.is_active ? "启用" : "停用"}</button></span>
+                      <span className="px-3 py-3 text-xs text-slate-400 w-36 hidden lg:table-cell">{s.last_crawled_at ? new Date(s.last_crawled_at).toLocaleDateString("zh-CN") : "从未"}</span>
                       <span className="px-3 py-3"><div className="flex items-center justify-end gap-1">
-                        <IconBtn onClick={e => { e.stopPropagation(); handleCrawl(s); }} disabled={crawling === s.id} title="手动爬取">{crawling === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}</IconBtn>
-                        <IconBtn onClick={e => { e.stopPropagation(); handleTest(s); }} disabled={testingId === s.id} title="测试选择器">{testLoading && testingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}</IconBtn>
-                        <IconBtn onClick={e => { e.stopPropagation(); openEdit(s); }} title="编辑"><Pencil className="w-4 h-4" /></IconBtn>
-                        <IconBtn onClick={e => { e.stopPropagation(); handleDelete(s); }} title="删除" className="hover:bg-red-50 hover:text-red-600"><Trash2 className="w-4 h-4" /></IconBtn>
+                        {isAdmin && (
+                          <>
+                            <IconBtn onClick={e => { e.stopPropagation(); handleCrawl(s); }} disabled={crawling === s.id} title="手动爬取">{crawling === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}</IconBtn>
+                            <IconBtn onClick={e => { e.stopPropagation(); handleTest(s); }} disabled={testingId === s.id} title="测试选择器">{testLoading && testingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />}</IconBtn>
+                            <IconBtn onClick={e => { e.stopPropagation(); openEdit(s); }} title="编辑"><Pencil className="w-4 h-4" /></IconBtn>
+                            <IconBtn onClick={e => { e.stopPropagation(); handleDelete(s); }} title="删除" className="hover:bg-red-50 hover:text-red-600"><Trash2 className="w-4 h-4" /></IconBtn>
+                          </>
+                        )}
+                        {!isAdmin && <span className="text-xs text-slate-300">只读</span>}
                       </div></span>
                     </div>
                     {expandedId === s.id && (
-                      <div className="bg-blue-50/20 border-t border-blue-100 px-8 py-3">
+                      <div className="bg-blue-50/20 border-t border-blue-100 px-3 lg:px-8 py-3">
                         {noticesLoading ? <div className="flex items-center gap-2 text-sm text-slate-400 py-2"><Loader2 className="w-3.5 h-3.5 animate-spin" />加载中...</div>
                         : sourceNotices[s.id]?.length ? <div className="space-y-1.5">
                           <div className="text-xs text-slate-400 mb-2">最近 {sourceNotices[s.id].length} 条通知：</div>
                           {sourceNotices[s.id].map(n => (
-                            <a key={n.id} href={n.url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 text-sm py-1 group hover:bg-white/60 rounded px-2 -mx-2 transition-colors">
-                              <span className="flex-1 text-slate-700 truncate group-hover:text-blue-600">{n.title}</span>
+                            <a key={n.id} href={n.url} target="_blank" rel="noopener noreferrer" className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm py-1 group hover:bg-white/60 rounded px-2 -mx-2 transition-colors">
+                              <span className="text-slate-700 group-hover:text-blue-600 truncate max-w-full">{n.title}</span>
                               <span className="text-xs text-slate-400 shrink-0">{n.published_at ? new Date(n.published_at).toLocaleDateString("zh-CN") : ""}</span>
-                              <ExternalLink className="w-3 h-3 text-slate-300 group-hover:text-blue-400 shrink-0" />
+                              <span className="text-xs text-blue-500 group-hover:text-blue-700 hidden sm:inline">查看</span>
                             </a>))}
                         </div> : <div className="text-sm text-slate-400 py-2">暂无通知记录</div>}
                       </div>

@@ -224,7 +224,14 @@ def crawl_source(source: dict, ua_index: int) -> tuple[int, int]:
         return 0, 0
 
     # 确定 webhook：源级别 > 空间级别 > 全局默认
-    webhook = source.get("webhook_url") or source.get("default_webhook") or DEFAULT_WEBHOOK
+    # 收集所有 webhook：源专属 + 空间默认 + 所有个人 webhook + 全局
+    personal = turso_query(
+        "SELECT webhook_url FROM workspace_webhooks WHERE workspace_id = ?",
+        [source["workspace_id"]]
+    )
+    webhook_raw = source.get("webhook_url") or source.get("default_webhook") or DEFAULT_WEBHOOK
+    all_urls = [webhook_raw] + [p["webhook_url"] for p in personal] + [DEFAULT_WEBHOOK]
+    webhooks = list(set(w.strip() for raw in all_urls for w in raw.replace(",", "\n").split("\n") if w.strip().startswith("http")))
 
     new_count = 0
     notified = 0
@@ -259,7 +266,7 @@ def crawl_source(source: dict, ua_index: int) -> tuple[int, int]:
         )
         new_count += 1
 
-        success = send_feishu(webhook, source["name"], title, full_url, published_at)
+        success = any(send_feishu(wh, source["name"], title, full_url, published_at) for wh in webhooks)
         if success:
             notified += 1
 

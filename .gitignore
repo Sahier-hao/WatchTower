@@ -15,6 +15,7 @@ dist/
 # 环境配置（含密钥不要提交）
 .env
 backend/.env
+CREDENTIALS.md
 
 # IDE
 .vscode/
@@ -34,3 +35,6 @@ desktop.ini
 
 # Wrangler
 worker/.wrangler/
+
+#docs
+docs

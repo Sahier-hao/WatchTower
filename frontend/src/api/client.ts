@@ -11,9 +11,22 @@ import type {
 
 const baseURL = import.meta.env.VITE_API_BASE || "/api";
 
-// 所有请求带上 workspace ID
+function getToken(): string {
+  const key = "wt_admin_token";
+  let t = localStorage.getItem(key);
+  if (!t) { t = crypto.randomUUID(); localStorage.setItem(key, t); }
+  return t;
+}
+
+export function getAdminToken(): string { return getToken(); }
+
+// 所有请求带上 workspace ID + token
 function api(wsId: string) {
-  return axios.create({ baseURL: `${baseURL}/${wsId}` });
+  const token = getToken();
+  return axios.create({
+    baseURL: `${baseURL}/${wsId}`,
+    params: { token },
+  });
 }
 
 // ====== 工作空间 ======
@@ -81,7 +94,24 @@ export async function fetchStats(wsId: string): Promise<Stats> {
   return data;
 }
 
-// ====== 设置 ======
+// ====== 个人 Webhook ======
+
+export async function fetchMyWebhooks(wsId: string, token: string) {
+  const a = axios.create({ baseURL });
+  const { data } = await a.get(`/${wsId}/webhooks`, { params: { token } });
+  return data.items;
+}
+
+export async function addMyWebhook(wsId: string, token: string, webhook_url: string, label?: string) {
+  const a = axios.create({ baseURL });
+  const { data } = await a.post(`/${wsId}/webhooks`, { webhook_url, label }, { params: { token } });
+  return data;
+}
+
+export async function deleteMyWebhook(wsId: string, token: string, hookId: string) {
+  const a = axios.create({ baseURL });
+  await a.delete(`/${wsId}/webhooks/${hookId}`, { params: { token } });
+}
 
 export async function fetchSettings(wsId: string): Promise<Settings> {
   const { data } = await api(wsId).get("/settings");

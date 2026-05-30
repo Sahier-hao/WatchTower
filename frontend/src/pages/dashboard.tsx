@@ -34,7 +34,7 @@ export default function Dashboard() {
         仪表盘 {stats.workspace_name ? `— ${stats.workspace_name}` : ""}
       </h1>
 
-      <div className="grid grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4 mb-6 lg:mb-8">
         {cards.map((card) => (
           <div key={card.label} className="bg-white rounded-xl border border-slate-200 p-5">
             <div className="flex items-center gap-3 mb-3">

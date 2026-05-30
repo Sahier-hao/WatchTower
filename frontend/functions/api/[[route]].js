@@ -93,8 +93,8 @@ async function ensureTables(env) {
   await tursoExecute(env, `CREATE INDEX IF NOT EXISTS idx_sources_ws ON sources(workspace_id)`);
 }
 
-export default {
-  async fetch(request, env) {
+export async function onRequest(context) {
+  const { request, env } = context;
     const url = new URL(request.url);
     const method = request.method;
 
@@ -471,5 +471,4 @@ export default {
     } catch (e) {
       return json({ detail: e.message }, 500);
     }
-  },
-};
+  }

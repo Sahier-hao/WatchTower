@@ -2,5 +2,9 @@ name = "notification-assistant-api"
 main = "worker.js"
 compatibility_date = "2025-01-01"
 
+routes = [
+  { pattern = "watch.zhixue.fun/api/*", zone_name = "zhixue.fun" }
+]
+
 [observability]
 enabled = true
