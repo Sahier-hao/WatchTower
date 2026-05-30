@@ -232,26 +232,8 @@ export async function onRequest(context) {
       }
       const isAdmin = wsData[0].admin_token && userToken === wsData[0].admin_token;
 
-      // ── 快照读取（优先静态 JSON，秒开）──
-      async function serveSnapshot(endpoint) {
-        try {
-          const rawUrl = `https://raw.githubusercontent.com/Sahier-hao/WatchTower/main/backend/snapshots/${ws}.json`;
-          const resp = await fetch(rawUrl, { cf: { cacheTtl: 300 } });
-          if (!resp.ok) return null;
-          const snap = await resp.json();
-          const age = Date.now() - new Date(snap.updated_at).getTime();
-          if (age > 2 * 60 * 60 * 1000) return null;
-          if (endpoint === "stats") return json(snap.stats);
-          if (endpoint === "sources") return json({ items: snap.sources || [], total: (snap.sources || []).length });
-          if (endpoint === "notices") return json({ items: (snap.notices || []).slice(0, 50), total: (snap.notices || []).length });
-          if (endpoint === "runs") return json({ items: snap.runs || [] });
-          return null;
-        } catch { return null; }
-      }
-
       // ── GET /stats ──
       if (resource === "stats") {
-        if (method === "GET") { const c = await serveSnapshot("stats"); if (c) return c; }
         const sResults = await batchQuery(env, [
             { sql: "SELECT COUNT(*) as c FROM sources WHERE workspace_id = ?", params: [ws] },
             { sql: "SELECT COUNT(*) as c FROM sources WHERE workspace_id = ? AND is_active = 1", params: [ws] },
@@ -334,8 +316,6 @@ export async function onRequest(context) {
       // ── GET /sources ──
       if (resource === "sources" && !subId) {
         if (method === "GET") {
-          const c = await serveSnapshot("sources");
-          if (c) return c;
           const skip = parseInt(url.searchParams.get("skip") || "0");
           const limit = parseInt(url.searchParams.get("limit") || "50");
           const sources = await cachedQuery(env,
@@ -537,7 +517,6 @@ export async function onRequest(context) {
 
       // ── GET /notices ──
       if (resource === "notices") {
-        if (method === "GET") { const c = await serveSnapshot("notices"); if (c) return c; }
         const skip = parseInt(url.searchParams.get("skip") || "0");
         const limit = parseInt(url.searchParams.get("limit") || "20");
         const sourceId = url.searchParams.get("source_id");
@@ -563,8 +542,6 @@ export async function onRequest(context) {
 
       // ── GET /runs (爬取日志) ──
       if (resource === "runs" && method === "GET") {
-        const c = await serveSnapshot("runs");
-        if (c) return c;
         const limit = parseInt(url.searchParams.get("limit") || "20");
         const runs = await cachedQuery(env,
           "SELECT * FROM crawl_runs WHERE workspace_id = ? OR workspace_id = '' ORDER BY finished_at DESC LIMIT ?",
