@@ -105,10 +105,63 @@ async function tursoExecute(env, sql, params = []) {
   return 0;
 }
 
+// 简单内存缓存（Pages Function 实例级别）
+const memCache = new Map();
+
+function cached(key, ttl, fn) {
+  const entry = memCache.get(key);
+  if (entry && Date.now() < entry.expiry) return entry.data;
+  const data = fn();
+  memCache.set(key, { data, expiry: Date.now() + ttl * 1000 });
+  return data;
+}
+
 function json(data, status = 200) {
-  return new Response(JSON.stringify(data), {
-    status, headers: { ...CORS_HEADERS, "Content-Type": "application/json" },
+  const headers = { ...CORS_HEADERS, "Content-Type": "application/json" };
+  // 只有成功响应才缓存，减少跨境请求
+  if (status >= 200 && status < 300) {
+    headers["Cache-Control"] = "public, max-age=300, s-maxage=300";
+  }
+  return new Response(JSON.stringify(data), { status, headers });
+}
+
+// 包装 tursoQuery，10 秒内相同 SQL 不重复查数据库
+const _qCache = new Map();
+async function cachedQuery(env, sql, params = [], ttl = 10) {
+  const key = sql + JSON.stringify(params);
+  const entry = _qCache.get(key);
+  if (entry && Date.now() < entry.expiry) return entry.data;
+  const data = await tursoQuery(env, sql, params);
+  _qCache.set(key, { data, expiry: Date.now() + ttl * 1000 });
+  return data;
+}
+
+// 批量查询：多个 SQL 合并为一次 HTTP 请求
+async function batchQuery(env, queries) {
+  const requests = queries.map(q => ({
+    type: "execute", stmt: { sql: q.sql, args: typedArgs(q.params || []) }
+  }));
+  requests.push({ type: "close" });
+  const resp = await fetch(`${tursoUrl(env)}/v2/pipeline`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${env.TURSO_TOKEN}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ requests }),
   });
+  const data = await resp.json();
+  const results = [];
+  for (const r of data.results || []) {
+    if (r.type === "ok" && r.response?.type === "execute") {
+      const cols = (r.response.result.cols || []).map(c => c.name);
+      const rows = [];
+      for (const row of r.response.result.rows || []) {
+        const obj = {};
+        cols.forEach((c, i) => obj[c] = row[i]?.value ?? null);
+        rows.push(obj);
+      }
+      results.push(rows);
+    }
+  }
+  return results;
 }
 
 // ── 初始化表 ──
@@ -166,7 +219,7 @@ export async function onRequest(context) {
 
       // 验证 workspace + 获取用户 token
       const userToken = url.searchParams.get("token") || "";
-      let wsData = await tursoQuery(env, "SELECT * FROM workspaces WHERE id = ?", [ws]);
+      let wsData = await cachedQuery(env, "SELECT * FROM workspaces WHERE id = ?", [ws]);
       if (!wsData.length) {
         const newAdminToken = crypto.randomUUID();
         await tursoExecute(env, "INSERT INTO workspaces (id, name, admin_token) VALUES (?, '新空间', ?)", [ws, newAdminToken]);
@@ -179,15 +232,33 @@ export async function onRequest(context) {
       }
       const isAdmin = wsData[0].admin_token && userToken === wsData[0].admin_token;
 
+      // ── 快照读取（优先静态 JSON，秒开）──
+      async function serveSnapshot(endpoint) {
+        try {
+          const rawUrl = `https://raw.githubusercontent.com/Sahier-hao/WatchTower/main/backend/snapshots/${ws}.json`;
+          const resp = await fetch(rawUrl, { cf: { cacheTtl: 300 } });
+          if (!resp.ok) return null;
+          const snap = await resp.json();
+          const age = Date.now() - new Date(snap.updated_at).getTime();
+          if (age > 2 * 60 * 60 * 1000) return null;
+          if (endpoint === "stats") return json(snap.stats);
+          if (endpoint === "sources") return json({ items: snap.sources || [], total: (snap.sources || []).length });
+          if (endpoint === "notices") return json({ items: (snap.notices || []).slice(0, 50), total: (snap.notices || []).length });
+          if (endpoint === "runs") return json({ items: snap.runs || [] });
+          return null;
+        } catch { return null; }
+      }
+
       // ── GET /stats ──
       if (resource === "stats") {
-        const sResults = await Promise.all([
-            tursoQuery(env, "SELECT COUNT(*) as c FROM sources WHERE workspace_id = ?", [ws]),
-            tursoQuery(env, "SELECT COUNT(*) as c FROM sources WHERE workspace_id = ? AND is_active = 1", [ws]),
-            tursoQuery(env, "SELECT COUNT(*) as c FROM notices WHERE workspace_id = ?", [ws]),
-            tursoQuery(env, "SELECT COUNT(*) as c FROM notices WHERE workspace_id = ? AND first_seen_at >= date('now')", [ws]),
-            tursoQuery(env, "SELECT COUNT(*) as c FROM notification_logs WHERE workspace_id = ?", [ws]),
-            tursoQuery(env, "SELECT COUNT(*) as c FROM notification_logs WHERE workspace_id = ? AND status = 'success'", [ws]),
+        if (method === "GET") { const c = await serveSnapshot("stats"); if (c) return c; }
+        const sResults = await batchQuery(env, [
+            { sql: "SELECT COUNT(*) as c FROM sources WHERE workspace_id = ?", params: [ws] },
+            { sql: "SELECT COUNT(*) as c FROM sources WHERE workspace_id = ? AND is_active = 1", params: [ws] },
+            { sql: "SELECT COUNT(*) as c FROM notices WHERE workspace_id = ?", params: [ws] },
+            { sql: "SELECT COUNT(*) as c FROM notices WHERE workspace_id = ? AND first_seen_at >= date('now')", params: [ws] },
+            { sql: "SELECT COUNT(*) as c FROM notification_logs WHERE workspace_id = ?", params: [ws] },
+            { sql: "SELECT COUNT(*) as c FROM notification_logs WHERE workspace_id = ? AND status = 'success'", params: [ws] },
           ]);
         const sc = sResults[0]?.[0]?.c || 0;
         const ac = sResults[1]?.[0]?.c || 0;
@@ -263,9 +334,11 @@ export async function onRequest(context) {
       // ── GET /sources ──
       if (resource === "sources" && !subId) {
         if (method === "GET") {
+          const c = await serveSnapshot("sources");
+          if (c) return c;
           const skip = parseInt(url.searchParams.get("skip") || "0");
           const limit = parseInt(url.searchParams.get("limit") || "50");
-          const sources = await tursoQuery(env,
+          const sources = await cachedQuery(env,
             "SELECT * FROM sources WHERE workspace_id = ? ORDER BY created_at DESC LIMIT ? OFFSET ?",
             [ws, limit, skip]
           );
@@ -464,6 +537,7 @@ export async function onRequest(context) {
 
       // ── GET /notices ──
       if (resource === "notices") {
+        if (method === "GET") { const c = await serveSnapshot("notices"); if (c) return c; }
         const skip = parseInt(url.searchParams.get("skip") || "0");
         const limit = parseInt(url.searchParams.get("limit") || "20");
         const sourceId = url.searchParams.get("source_id");
@@ -480,7 +554,7 @@ export async function onRequest(context) {
         sql += " ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC LIMIT ? OFFSET ?";
         params.push(limit, skip);
 
-        const notices = await tursoQuery(env, sql, params);
+        const notices = await cachedQuery(env, sql, params);
         const [[total]] = await Promise.all([
           tursoQuery(env, countSql, sourceId ? [ws, sourceId] : [ws]),
         ]);
@@ -489,8 +563,10 @@ export async function onRequest(context) {
 
       // ── GET /runs (爬取日志) ──
       if (resource === "runs" && method === "GET") {
+        const c = await serveSnapshot("runs");
+        if (c) return c;
         const limit = parseInt(url.searchParams.get("limit") || "20");
-        const runs = await tursoQuery(env,
+        const runs = await cachedQuery(env,
           "SELECT * FROM crawl_runs WHERE workspace_id = ? OR workspace_id = '' ORDER BY finished_at DESC LIMIT ?",
           [ws, limit]
         );

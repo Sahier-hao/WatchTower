@@ -32,3 +32,11 @@ jobs:
           TURSO_TOKEN: ${{ secrets.TURSO_TOKEN }}
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         run: python standalone_crawl.py
+
+      - name: 提交快照
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add backend/snapshots/
+          git diff --staged --quiet || git commit -m "chore: 更新数据快照 [skip ci]"
+          git push
