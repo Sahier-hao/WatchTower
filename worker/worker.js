@@ -420,14 +420,11 @@ export default {
               const existing = await tursoQuery(env, "SELECT id FROM notices WHERE content_hash = ?", [hash]);
               if (existing.length) continue;
 
-              // 提取时间
-              const timeEl = src.time_selector ? matchTime(html, src.time_selector) : null;
-              const publishedAt = timeEl ? parseTime(timeEl) : null;
-
+              // Worker 不提取发布时间（正则不准），交给 Python 爬虫用 BeautifulSoup 解析
               const noticeId = crypto.randomUUID();
               await tursoExecute(env,
-                "INSERT INTO notices (id, workspace_id, source_id, title, url, content_hash, published_at, first_seen_at) VALUES (?,?,?,?,?,?,?,?)",
-                [noticeId, ws, src.id, title, fullUrl, hash, publishedAt, new Date().toISOString()]
+                "INSERT INTO notices (id, workspace_id, source_id, title, url, content_hash, first_seen_at) VALUES (?,?,?,?,?,?,?)",
+                [noticeId, ws, src.id, title, fullUrl, hash, new Date().toISOString()]
               );
               newNotices.push({ id: noticeId, title, url: fullUrl });
 
@@ -477,7 +474,7 @@ export default {
           countSql += " AND source_id = ?";
           params.push(sourceId);
         }
-        sql += " ORDER BY COALESCE(n.published_at, n.first_seen_at) DESC LIMIT ? OFFSET ?";
+        sql += " ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC LIMIT ? OFFSET ?";
         params.push(limit, skip);
 
         const notices = await tursoQuery(env, sql, params);

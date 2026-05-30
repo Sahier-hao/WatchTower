@@ -64,7 +64,7 @@ export default function Runs() {
                   </span>
                 </div>
                 <span className="text-xs text-slate-400">
-                  {r.finished_at ? new Date(r.finished_at).toLocaleString("zh-CN") : "-"}
+                  {r.finished_at ? new Date(r.finished_at + "Z").toLocaleString("zh-CN") : "-"}
                 </span>
               </div>
 

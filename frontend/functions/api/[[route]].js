@@ -477,7 +477,7 @@ export async function onRequest(context) {
           countSql += " AND source_id = ?";
           params.push(sourceId);
         }
-        sql += " ORDER BY COALESCE(n.published_at, n.first_seen_at) DESC LIMIT ? OFFSET ?";
+        sql += " ORDER BY CASE WHEN n.published_at IS NULL THEN 1 ELSE 0 END, n.published_at DESC LIMIT ? OFFSET ?";
         params.push(limit, skip);
 
         const notices = await tursoQuery(env, sql, params);

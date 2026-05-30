@@ -4,6 +4,7 @@ import { Plus, Pencil, Trash2, Play, Eye, Loader2, Radio, ChevronRight } from "l
 import { fetchSources, createSource, updateSource, deleteSource, testSource, manualCrawl, fetchNotices, fetchStats } from "../api/client";
 import type { SourceFormData } from "../api/client";
 import { useToast } from "../components/toast";
+import { openLink } from "../lib/utils";
 import type { Source, TestResult, CrawlResult, Notice } from "../types";
 
 const defaultForm: SourceFormData = {
@@ -166,7 +167,7 @@ export default function Sources() {
                         : sourceNotices[s.id]?.length ? <div className="space-y-1.5">
                           <div className="text-xs text-slate-400 mb-2">最近 {sourceNotices[s.id].length} 条通知：</div>
                           {sourceNotices[s.id].map(n => (
-                            <a key={n.id} href={n.url} target="_blank" rel="noopener noreferrer" className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-sm py-1 group hover:bg-white/60 rounded px-2 -mx-2 transition-colors">
+                            <a key={n.id} href={n.url} target="_blank" rel="noopener noreferrer" onClick={(e) => openLink(n.url, e)} className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm py-2 group hover:bg-white/60 active:bg-white/80 rounded px-2 -mx-2 transition-colors min-h-[44px]">
                               <span className="text-slate-700 group-hover:text-blue-600 truncate max-w-full">{n.title}</span>
                               <span className="text-xs text-slate-400 shrink-0">{n.published_at ? new Date(n.published_at).toLocaleDateString("zh-CN") : ""}</span>
                               <span className="text-xs text-blue-500 group-hover:text-blue-700 hidden sm:inline">查看</span>
