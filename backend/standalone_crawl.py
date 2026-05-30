@@ -67,9 +67,9 @@ def turso_query(sql: str, params: list | None = None) -> list[dict]:
     resp.raise_for_status()
     rows = []
     for r in resp.json().get("results", []):
-        if r.get("type") == "execute" and "response" in r:
+        if r.get("type") == "ok" and "response" in r:
             response = r["response"]
-            if response.get("type") == "ok":
+            if response.get("type") == "execute":
                 cols = [c["name"] for c in response["result"]["cols"]]
                 for row in response["result"].get("rows", []):
                     rows.append(dict(zip(cols, [v.get("value") for v in row])))
@@ -88,7 +88,7 @@ def turso_execute(sql: str, params: list | None = None) -> int:
     )
     resp.raise_for_status()
     for r in resp.json().get("results", []):
-        if r.get("type") == "execute" and "response" in r:
+        if r.get("type") == "ok" and "response" in r:
             return r["response"]["result"].get("affected_row_count", 0)
     return 0
 
