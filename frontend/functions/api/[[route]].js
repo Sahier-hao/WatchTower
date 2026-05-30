@@ -25,6 +25,36 @@ function tursoUrl(env) {
   return parts.join("/");
 }
 
+function parseTime(str) {
+  if (!str) return null;
+  str = str.trim();
+  // 标准格式
+  const r = matchFmt(str);
+  if (r) return r;
+  // 粘连: 202605-29
+  let m = str.match(/^(\d{4})(\d{2}-\d{2})$/);
+  if (m) { const d = new Date(`${m[1]}-${m[2]}`); if (!isNaN(d)) return d.toISOString(); }
+  // 粘连: 04-242026
+  m = str.match(/^(\d{2}-\d{2})(\d{4})$/);
+  if (m) { const d = new Date(`${m[2]}-${m[1]}`); if (!isNaN(d)) return d.toISOString(); }
+  return null;
+}
+
+function matchFmt(str) {
+  let m = str.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) { const d = new Date(m[0]); return !isNaN(d.getTime()) ? d.toISOString() : null; }
+  m = str.match(/^(\d{2})-(\d{2})/);
+  if (m) { const d = new Date(`${new Date().getFullYear()}-${m[1]}-${m[2]}`); return !isNaN(d.getTime()) ? d.toISOString() : null; }
+  return null;
+}
+
+async function matchTime(html, selector) {
+  // Simple regex to find date-like patterns near the selector pattern
+  const datePattern = /(\d{4}-\d{2}-\d{2}|\d{4}\/\d{2}\/\d{2}|\d{2}-\d{2})/g;
+  const matches = html.match(datePattern);
+  return matches ? matches[matches.length - 1] : null;
+}
+
 function typedArgs(params = []) {
   return params.map(v => {
     if (v === null || v === undefined) return { type: "null" };
@@ -90,6 +120,7 @@ async function ensureTables(env) {
   await tursoExecute(env, `CREATE TABLE IF NOT EXISTS workspace_webhooks (id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL, user_token TEXT NOT NULL, webhook_url TEXT NOT NULL, label TEXT DEFAULT '', created_at TEXT DEFAULT (datetime('now')))`);
   await tursoExecute(env, `CREATE UNIQUE INDEX IF NOT EXISTS idx_notices_hash ON notices(content_hash)`);
   await tursoExecute(env, `CREATE INDEX IF NOT EXISTS idx_notices_ws ON notices(workspace_id)`);
+  await tursoExecute(env, `CREATE TABLE IF NOT EXISTS crawl_runs (id TEXT PRIMARY KEY, workspace_id TEXT DEFAULT '', source_count INTEGER DEFAULT 0, new_count INTEGER DEFAULT 0, notified_count INTEGER DEFAULT 0, status TEXT DEFAULT 'ok', error_msg TEXT, started_at TEXT, finished_at TEXT DEFAULT (datetime('now')))`);
   await tursoExecute(env, `CREATE INDEX IF NOT EXISTS idx_sources_ws ON sources(workspace_id)`);
 }
 
@@ -128,24 +159,9 @@ export async function onRequest(context) {
         return json({ ...ws[0], admin_token: adminToken }, 201);
       }
 
-      // ── health / debug ──
+      // ── health ──
       if (!ws || ws === "health") {
         return json({ status: "ok", version: "2.0-multi" });
-      }
-      if (ws === "debug") {
-        const actualUrl = tursoUrl(env);
-        // 绕过 tursoQuery，直接看原始响应
-        const rawResp = await fetch(`${actualUrl}/v2/pipeline`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${env.TURSO_TOKEN}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ requests: [
-            { type: "execute", stmt: { sql: "SELECT id, workspace_id, name FROM sources LIMIT 3", args: [] } },
-            { type: "execute", stmt: { sql: "SELECT COUNT(*) as c FROM sources", args: [] } },
-            { type: "close" },
-          ]}),
-        });
-        const rawBody = await rawResp.text();
-        return json({ actualUrl, rawBody: rawBody.substring(0, 2000) });
       }
 
       // 验证 workspace + 获取用户 token
@@ -404,10 +420,14 @@ export async function onRequest(context) {
               const existing = await tursoQuery(env, "SELECT id FROM notices WHERE content_hash = ?", [hash]);
               if (existing.length) continue;
 
+              // 提取时间
+              const timeEl = src.time_selector ? matchTime(html, src.time_selector) : null;
+              const publishedAt = timeEl ? parseTime(timeEl) : null;
+
               const noticeId = crypto.randomUUID();
               await tursoExecute(env,
-                "INSERT INTO notices (id, workspace_id, source_id, title, url, content_hash, first_seen_at) VALUES (?,?,?,?,?,?,?)",
-                [noticeId, ws, src.id, title, fullUrl, hash, new Date().toISOString()]
+                "INSERT INTO notices (id, workspace_id, source_id, title, url, content_hash, published_at, first_seen_at) VALUES (?,?,?,?,?,?,?,?)",
+                [noticeId, ws, src.id, title, fullUrl, hash, publishedAt, new Date().toISOString()]
               );
               newNotices.push({ id: noticeId, title, url: fullUrl });
 
@@ -457,7 +477,7 @@ export async function onRequest(context) {
           countSql += " AND source_id = ?";
           params.push(sourceId);
         }
-        sql += " ORDER BY n.first_seen_at DESC LIMIT ? OFFSET ?";
+        sql += " ORDER BY COALESCE(n.published_at, n.first_seen_at) DESC LIMIT ? OFFSET ?";
         params.push(limit, skip);
 
         const notices = await tursoQuery(env, sql, params);
@@ -465,6 +485,16 @@ export async function onRequest(context) {
           tursoQuery(env, countSql, sourceId ? [ws, sourceId] : [ws]),
         ]);
         return json({ items: notices, total: total?.c || 0 });
+      }
+
+      // ── GET /runs (爬取日志) ──
+      if (resource === "runs" && method === "GET") {
+        const limit = parseInt(url.searchParams.get("limit") || "20");
+        const runs = await tursoQuery(env,
+          "SELECT * FROM crawl_runs WHERE workspace_id = ? OR workspace_id = '' ORDER BY finished_at DESC LIMIT ?",
+          [ws, limit]
+        );
+        return json({ items: runs });
       }
 
       return json({ detail: "Not Found" }, 404);

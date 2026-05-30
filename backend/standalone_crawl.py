@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sys
+import uuid
 from datetime import datetime, timezone
 from urllib.parse import urljoin
 
@@ -142,6 +143,14 @@ def init_tables():
             status TEXT NOT NULL,
             error_msg TEXT,
             sent_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    turso_execute("""
+        CREATE TABLE IF NOT EXISTS crawl_runs (
+            id TEXT PRIMARY KEY, workspace_id TEXT DEFAULT '',
+            source_count INTEGER DEFAULT 0, new_count INTEGER DEFAULT 0,
+            notified_count INTEGER DEFAULT 0, status TEXT DEFAULT 'ok',
+            error_msg TEXT, started_at TEXT, finished_at TEXT DEFAULT (datetime('now'))
         )
     """)
     # 创建索引
@@ -308,6 +317,13 @@ def main():
         total_notified += notified
 
     print(f"\n总计: 新增 {total_new} 条, 推送 {total_notified} 条")
+
+    # 写入爬取日志
+    import uuid
+    turso_execute(
+        "INSERT INTO crawl_runs (id, source_count, new_count, notified_count, status, started_at) VALUES (?,?,?,?,?,?)",
+        [str(uuid.uuid4()), len(sources), total_new, total_notified, "ok", datetime.now(timezone.utc).isoformat()]
+    )
 
     if "GITHUB_STEP_SUMMARY" in os.environ:
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:

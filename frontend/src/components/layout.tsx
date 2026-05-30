@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink, Outlet, useParams, useNavigate } from "react-router-dom";
-import { Bell, Radio, Settings, LayoutDashboard, LogOut, Share2, Menu, X } from "lucide-react";
+import { Bell, Radio, Settings, LayoutDashboard, LogOut, Share2, Menu, X, Activity } from "lucide-react";
 
 export default function Layout() {
   const { wsId } = useParams<{ wsId: string }>();
@@ -11,6 +11,7 @@ export default function Layout() {
     { to: `/w/${wsId}`, end: true, icon: LayoutDashboard, label: "仪表盘" },
     { to: `/w/${wsId}/sources`, icon: Radio, label: "爬取源" },
     { to: `/w/${wsId}/notices`, icon: Bell, label: "通知列表" },
+    { to: `/w/${wsId}/runs`, icon: Activity, label: "爬取日志" },
     { to: `/w/${wsId}/settings`, icon: Settings, label: "设置" },
   ];
 

@@ -6,6 +6,7 @@ import Dashboard from "./pages/dashboard";
 import Sources from "./pages/sources";
 import Notices from "./pages/notices";
 import SettingsPage from "./pages/settings";
+import Runs from "./pages/runs";
 
 export default function App() {
   return (
@@ -17,6 +18,7 @@ export default function App() {
             <Route index element={<Dashboard />} />
             <Route path="sources" element={<Sources />} />
             <Route path="notices" element={<Notices />} />
+            <Route path="runs" element={<Runs />} />
             <Route path="settings" element={<SettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
