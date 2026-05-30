@@ -3,5 +3,10 @@ main = "worker.js"
 compatibility_date = "2025-01-01"
 workers_dev = true
 
+# 创建 KV 后把 id 填这里
+# kv_namespaces = [
+#   { binding = "SNAPSHOTS", id = "你的KV_ID" }
+# ]
+
 [observability]
 enabled = true

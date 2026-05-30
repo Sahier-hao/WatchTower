@@ -325,49 +325,10 @@ def main():
         [str(uuid.uuid4()), len(sources), total_new, total_notified, "ok", datetime.now(timezone.utc).isoformat()]
     )
 
-    # 生成静态 JSON 快照
-    _gen_snapshots()
-
     if "GITHUB_STEP_SUMMARY" in os.environ:
         with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as f:
             f.write(f"## 爬取结果\n| 源 | 新增 | 推送 |\n|----|------|------|\n")
             f.write(f"| {len(sources)} 个 | {total_new} | {total_notified} |\n")
-
-
-def _gen_snapshots():
-    """为每个 workspace 生成静态 JSON 快照，供前端快速读取"""
-    import os as _os
-    snap_dir = "snapshots"
-    _os.makedirs(snap_dir, exist_ok=True)
-
-    workspaces = turso_query("SELECT id FROM workspaces")
-    for ws_data in workspaces:
-        ws = ws_data["id"]
-        # 聚合查询
-        sources = turso_query("SELECT * FROM sources WHERE workspace_id = ? AND is_active = 1", [ws])
-        notices = turso_query(
-            "SELECT n.*, s.name as source_name FROM notices n LEFT JOIN sources s ON n.source_id = s.id WHERE n.workspace_id = ? ORDER BY COALESCE(n.published_at, n.first_seen_at) DESC LIMIT 50",
-            [ws]
-        )
-        stats = {
-            "source_count": len(sources),
-            "notice_total": len(notices),
-            "today_new": sum(1 for n in notices if (n.get("first_seen_at") or "")[:10] >= datetime.now(timezone.utc).strftime("%Y-%m-%d")),
-            "push_success_rate": 100,
-        }
-        runs = turso_query(
-            "SELECT * FROM crawl_runs WHERE workspace_id = ? OR workspace_id = '' ORDER BY finished_at DESC LIMIT 10",
-            [ws]
-        )
-        snapshot = {
-            "updated_at": datetime.now(timezone.utc).isoformat(),
-            "sources": sources,
-            "notices": notices,
-            "stats": stats,
-            "runs": runs,
-        }
-        with open(f"{snap_dir}/{ws}.json", "w", encoding="utf-8") as f:
-            json.dump(snapshot, f, ensure_ascii=False, default=str)
 
 
 if __name__ == "__main__":
