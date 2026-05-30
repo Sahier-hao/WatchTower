@@ -352,7 +352,7 @@ def _gen_snapshots():
         stats = {
             "source_count": len(sources),
             "notice_total": len(notices),
-            "today_new": sum(1 for n in notices if n.get("first_seen_at", "")[:10] >= datetime.now(timezone.utc).strftime("%Y-%m-%d")),
+            "today_new": sum(1 for n in notices if (n.get("first_seen_at") or "")[:10] >= datetime.now(timezone.utc).strftime("%Y-%m-%d")),
             "push_success_rate": 100,
         }
         runs = turso_query(
