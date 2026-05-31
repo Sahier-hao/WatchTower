@@ -26,7 +26,7 @@ function tursoUrl(env) {
 }
 
 function parseTime(str) {
-  if (!str) return null;
+  if (!str || typeof str !== "string") return null;
   str = str.trim();
   // 标准格式
   const r = matchFmt(str);

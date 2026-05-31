@@ -125,6 +125,26 @@ async function ensureTables(env) {
 }
 
 export default {
+  // ── Cron：每小时触发 GitHub Actions ──
+  async scheduled(event, env) {
+    // 北京时间 6:00-23:00 才触发，夜间跳过
+    const now = new Date();
+    const bjHour = (now.getUTCHours() + 8) % 24;
+    if (bjHour < 6 || bjHour >= 23) return;
+
+    await fetch("https://api.github.com/repos/Sahier-hao/WatchTower/actions/workflows/crawl.yml/dispatches", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${env.GITHUB_TOKEN}`,
+        "Accept": "application/vnd.github+json",
+        "User-Agent": "WatchTower-Cron",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ ref: "main" }),
+    });
+  },
+
+  // ── HTTP API ──
   async fetch(request, env) {
     const url = new URL(request.url);
     const method = request.method;
